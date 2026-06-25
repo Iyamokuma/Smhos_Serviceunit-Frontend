@@ -1,0 +1,382 @@
+import { useEffect, useMemo, useState } from "react";
+import { Modal } from "./Modal.jsx";
+import { SearchableSelect } from "./SearchableSelect.jsx";
+import { api } from "../api.js";
+import { fetchAdminChurchesCatalog } from "../churchesCatalog.js";
+import {
+  countriesFromCatalog,
+  statesForCountryPicker,
+  satellitesFromChurches,
+} from "../catalogGeoOptions.js";
+import { churchSelectOptionsForBranch } from "../satelliteSites.js";
+import {
+  occupiedCountryCodes,
+  ROLES_WITH_BRANCH_CHURCH,
+  ROLES_WITH_COUNTRY,
+  ROLES_WITH_SATELLITE,
+  ROLES_WITH_STATE,
+  validateAdminReassignForm,
+} from "../adminAccountForm.js";
+import { occupiedStateCodes } from "../stateAdminForm.js";
+import { roleDisplayLabel } from "../roles.js";
+import { branchCountryLabel, branchStateLabel } from "../branchRegions.js";
+import { unitHasSubUnits } from "../../serviceUnitUtils.js";
+import { AdminScopePanel, adminScopePanelLabel, formatAdminScopeDraft } from "./AdminScopePanel.jsx";
+import { AdminLocationScopeFields } from "./AdminLocationScopeFields.jsx";
+
+const ROLE_OPTIONS = [
+  { value: "country_super_admin", label: "Country Admin" },
+  { value: "state_super_admin", label: "State Branch Admin" },
+  { value: "satellite_church_admin", label: "Satellite Pastor Admin" },
+  { value: "data_entry_admin", label: "Data Entry Admin" },
+  { value: "general_admin", label: "General Admin" },
+  { value: "super_admin", label: "Super Admin" },
+];
+
+function emptyScopeForRole(role, prev = {}) {
+  const r = role || "";
+  return {
+    role: r,
+    branch_country: ROLES_WITH_COUNTRY.includes(r) ? prev.branch_country || "" : "",
+    branch_state: ROLES_WITH_STATE.includes(r) ? prev.branch_state || "" : "",
+    satellite_site:
+      ROLES_WITH_BRANCH_CHURCH.includes(r) || ROLES_WITH_SATELLITE.includes(r)
+        ? prev.satellite_site || ""
+        : "",
+    service_unit_id: ["service_unit_leader", "sub_unit_leader"].includes(r) ? prev.service_unit_id || "" : "",
+    sub_unit_name: r === "sub_unit_leader" ? prev.sub_unit_name || "" : "",
+  };
+}
+
+export function AdminReassignModal({
+  open,
+  onClose,
+  onSave,
+  saving,
+  admin,
+  existingAdmins = [],
+  pendingRequests = [],
+  unitList = [],
+  isRootSuper = false,
+  isGlobalAdmin = false,
+}) {
+  const [form, setForm] = useState(null);
+  const [churches, setChurches] = useState([]);
+  const [churchesLoading, setChurchesLoading] = useState(false);
+  const [catalog, setCatalog] = useState(null);
+  const useCatalogGeo = isGlobalAdmin;
+
+  const roleOptions = useMemo(
+    () => ROLE_OPTIONS.filter((r) => r.value !== "super_admin" || isRootSuper),
+    [isRootSuper],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      setChurches([]);
+      setChurchesLoading(false);
+      setCatalog(null);
+      return;
+    }
+    setChurchesLoading(true);
+    fetchAdminChurchesCatalog()
+      .then(setChurches)
+      .catch(() => setChurches([]))
+      .finally(() => setChurchesLoading(false));
+    if (useCatalogGeo) {
+      api.catalogList().then(setCatalog).catch(() => setCatalog(null));
+    }
+  }, [open, useCatalogGeo]);
+
+  const allCountryOptions = useMemo(
+    () => (useCatalogGeo && catalog ? countriesFromCatalog(catalog) : countriesFromCatalog(null)),
+    [useCatalogGeo, catalog],
+  );
+
+  const allStateOptions = useMemo(() => {
+    const cc = String(form?.branch_country || "").toUpperCase();
+    if (!cc) return [];
+    return statesForCountryPicker(cc, { catalog, churches });
+  }, [catalog, form?.branch_country, churches]);
+
+  useEffect(() => {
+    if (!open || !admin?.id) return;
+    setForm({
+      id: admin.id,
+      full_name: admin.full_name || "",
+      username: admin.username || "",
+      email: admin.email || "",
+      role: admin.role || "state_super_admin",
+      branch_country: admin.branch_country || "",
+      branch_state: admin.branch_state || "",
+      satellite_site: admin.satellite_site || "",
+      service_unit_id: admin.service_unit_id || "",
+      sub_unit_name: admin.sub_unit_name || "",
+      is_active: admin.is_active ?? 1,
+    });
+  }, [open, admin]);
+
+  const takenCountries = useMemo(
+    () => occupiedCountryCodes(existingAdmins, pendingRequests, form?.id),
+    [existingAdmins, pendingRequests, form?.id],
+  );
+
+  const takenStates = useMemo(
+    () => occupiedStateCodes(existingAdmins, pendingRequests, form?.branch_country, form?.id),
+    [existingAdmins, pendingRequests, form?.branch_country, form?.id],
+  );
+
+  const stateOptions = useMemo(() => {
+    return allStateOptions.filter((s) => !takenStates.has(String(s.code).toUpperCase()));
+  }, [allStateOptions, takenStates]);
+
+  const satelliteOptions = useMemo(() => {
+    if (!form?.branch_country || !form?.branch_state) return [];
+    return satellitesFromChurches(churches, form.branch_country, form.branch_state);
+  }, [churches, form?.branch_country, form?.branch_state]);
+
+  const showBranchChurchStepFlow =
+    isGlobalAdmin && form?.role && ROLES_WITH_BRANCH_CHURCH.includes(form.role);
+
+  const branchStateLabel =
+    form?.role === "country_super_admin" ? "Headquarters state" : "State / region";
+
+  const branchChurchOpts = useMemo(() => {
+    if (!showBranchChurchStepFlow || !form?.branch_country || !form?.branch_state) return [];
+    return churchSelectOptionsForBranch(churches, form.branch_country, form.branch_state);
+  }, [showBranchChurchStepFlow, churches, form?.branch_country, form?.branch_state]);
+
+  const showChurchPicker = showBranchChurchStepFlow;
+
+  const stateFieldOptions = useMemo(() => {
+    if (!showBranchChurchStepFlow || !form?.branch_country) return [];
+    let opts = form?.role === "satellite_church_admin" ? allStateOptions : stateOptions;
+    const st = String(form?.branch_state || "").toUpperCase();
+    if (st && !opts.some((s) => String(s.code).toUpperCase() === st)) {
+      opts = [
+        ...opts,
+        {
+          code: st,
+          name: branchStateLabel(form.branch_country, st) || st,
+        },
+      ];
+    }
+    return opts;
+  }, [showBranchChurchStepFlow, form?.role, form?.branch_state, form?.branch_country, allStateOptions, stateOptions]);
+
+  const selectedUnit = useMemo(
+    () => unitList.find((u) => Number(u.id) === Number(form?.service_unit_id)),
+    [unitList, form?.service_unit_id],
+  );
+  const selectedUnitHasSubs = unitHasSubUnits(selectedUnit);
+
+  const locationScoped = form && ROLES_WITH_COUNTRY.includes(form.role);
+
+  function setRole(role) {
+    setForm((f) => ({
+      ...f,
+      ...emptyScopeForRole(role, f),
+      role,
+      branch_state: emptyScopeForRole(role, f).branch_state,
+    }));
+  }
+
+  function submit() {
+    if (!form) return;
+    const msg = validateAdminReassignForm(form, {
+      takenCountries,
+      takenStates,
+      units: unitList,
+      satellitesInScope: showChurchPicker ? branchChurchOpts : [],
+    });
+    if (msg) {
+      onSave(null, msg);
+      return;
+    }
+    onSave({
+      id: form.id,
+      full_name: form.full_name,
+      email: form.email,
+      role: form.role,
+      branch_country: ROLES_WITH_COUNTRY.includes(form.role) ? form.branch_country : "",
+      branch_state: ROLES_WITH_STATE.includes(form.role) ? form.branch_state : "",
+      satellite_site: ROLES_WITH_BRANCH_CHURCH.includes(form.role) || ROLES_WITH_SATELLITE.includes(form.role)
+        ? form.satellite_site
+        : "",
+      service_unit_id: ["service_unit_leader", "sub_unit_leader"].includes(form.role)
+        ? form.service_unit_id
+        : "",
+      sub_unit_name: form.role === "sub_unit_leader" ? form.sub_unit_name : "",
+      is_active: form.is_active,
+    });
+  }
+
+  if (!form) return null;
+
+  const previousRoleLabel = admin?.role ? roleDisplayLabel(admin.role) : "—";
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Reassign administrator"
+      size="md"
+      footer={
+        <>
+          <button type="button" className="sa-btn sa-btn-outline" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="sa-btn sa-btn-primary" onClick={submit} disabled={saving}>
+            {saving ? "Saving…" : "Save reassignment"}
+          </button>
+        </>
+      }
+    >
+      <div className="sa-field" style={{ marginBottom: 12 }}>
+        <label className="sa-label">Administrator</label>
+        <input className="sa-input" value={form.full_name} disabled readOnly />
+        <div className="sa-field-hint">
+          Login: <strong>{form.username}</strong> · {form.email}
+        </div>
+      </div>
+
+      <div className="sa-field" style={{ marginBottom: 12 }}>
+        <label className="sa-label">Current role</label>
+        <input className="sa-input" value={previousRoleLabel} disabled readOnly />
+      </div>
+
+      <div className="sa-field" style={{ marginBottom: 16 }}>
+        <label className="sa-label">
+          New role <span className="sa-required">*</span>
+        </label>
+        <select className="sa-field-select" value={form.role} onChange={(e) => setRole(e.target.value)}>
+          {roleOptions.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {locationScoped ? (
+        <AdminScopePanel
+          label={adminScopePanelLabel(form.role)}
+          summary={formatAdminScopeDraft(form)}
+          hint="New assignment for this administrator."
+          defaultOpen
+        >
+          <AdminLocationScopeFields
+            form={form}
+            setForm={setForm}
+            isEdit={false}
+            countryOptions={allCountryOptions}
+            allCountryOptions={allCountryOptions}
+            allStateOptions={allStateOptions}
+            stateOptions={stateOptions}
+            showBranchChurchStepFlow={showBranchChurchStepFlow}
+            showBranchStateStep={false}
+            branchStateLabelText={branchStateLabel}
+            branchChurchHint={
+              form.role === "country_super_admin"
+                ? "Select the satellite church where this Country Admin is headquartered."
+                : form.role === "state_super_admin"
+                  ? "Select the satellite church for this State Branch Admin."
+                  : "Pastor admin is scoped to this satellite within the selected state."
+            }
+            branchChurchOpts={branchChurchOpts}
+            churches={churches}
+            showChurchPicker={showChurchPicker}
+            stateFieldOptions={stateFieldOptions}
+            steppedStateOptions={stateFieldOptions}
+            churchesLoading={churchesLoading}
+          />
+        </AdminScopePanel>
+      ) : null}
+
+      {ROLES_WITH_SATELLITE.includes(form.role) && !showBranchChurchStepFlow ? (
+        <div className="sa-field">
+          <label className="sa-label">
+            Satellite church <span className="sa-required">*</span>
+          </label>
+          <SearchableSelect
+            value={form.satellite_site}
+            onChange={(e) => setForm((f) => ({ ...f, satellite_site: e.target.value }))}
+            options={satelliteOptions}
+            disabled={!form.branch_country || !form.branch_state}
+            placeholder="Select satellite"
+            searchPlaceholder="Search satellite churches…"
+            emptyMessage="No satellites in this state"
+            ariaLabel="Satellite church"
+          />
+        </div>
+      ) : null}
+
+      {["service_unit_leader", "sub_unit_leader"].includes(form.role) ? (
+        <div className="sa-form-row">
+          <div className="sa-field">
+            <label className="sa-label">
+              Service unit <span className="sa-required">*</span>
+            </label>
+            <select
+              className="sa-field-select"
+              value={form.service_unit_id}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  service_unit_id: e.target.value,
+                  sub_unit_name: "",
+                }))
+              }
+            >
+              <option value="">Select unit</option>
+              {unitList.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {form.role === "sub_unit_leader" ? (
+            <div className="sa-field">
+              <label className="sa-label">
+                Sub-unit <span className="sa-required">*</span>
+              </label>
+              <select
+                className="sa-field-select"
+                value={form.sub_unit_name}
+                onChange={(e) => setForm((f) => ({ ...f, sub_unit_name: e.target.value }))}
+                disabled={!form.service_unit_id || !selectedUnitHasSubs}
+              >
+                <option value="">
+                  {!form.service_unit_id
+                    ? "Select service unit first"
+                    : selectedUnitHasSubs
+                      ? "Select sub-unit"
+                      : "No sub-units on this unit"}
+                </option>
+                {(selectedUnit?.sub_units || []).map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {form.service_unit_id && !selectedUnitHasSubs ? (
+                <div className="sa-field-hint">This service unit has no sub-units.</div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {form.role === "country_super_admin" || form.role === "state_super_admin" || form.role === "general_admin" || form.role === "data_entry_admin" ? (
+        <p className="sa-text-muted sa-text-sm" style={{ margin: "12px 0 0", lineHeight: 1.5 }}>
+          Previous assignment: {branchCountryLabel(admin?.branch_country) || "—"}
+          {admin?.branch_state
+            ? ` · ${branchStateLabel(admin.branch_country, admin.branch_state) || admin.branch_state}`
+            : ""}
+          {admin?.satellite_site ? ` · ${admin.satellite_site}` : ""}
+        </p>
+      ) : null}
+    </Modal>
+  );
+}
