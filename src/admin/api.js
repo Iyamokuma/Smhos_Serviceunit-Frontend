@@ -1,5 +1,5 @@
 import { branchCountryLabel, branchStateLabel } from "./branchRegions.js";
-import { functionsBaseUrl, supabaseAnonHeaders } from "../lib/supabaseEnv.js";
+import { functionsBaseUrl, isSupabaseConfigured, supabaseAnonHeaders } from "../lib/supabaseEnv.js";
 import { readAdminViewMode, canSwitchAdminView } from "./adminViewMode.js";
 
 function adminToken() {
@@ -13,6 +13,11 @@ function adminToken() {
 async function adminFetch(op, params = {}, { timeoutMs = 30000 } = {}) {
   const jwt = adminToken();
   if (!jwt) throw new Error("Unauthorized");
+  if (!isSupabaseConfigured()) {
+    throw new Error(
+      "Backend not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env, then restart the dev server."
+    );
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -131,6 +136,11 @@ function looksLikeInternalError(message) {
 }
 
 async function adminLoginFetch(op, params = {}) {
+  if (!isSupabaseConfigured()) {
+    throw new Error(
+      "Backend not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env, then restart the dev server."
+    );
+  }
   const res = await fetch(`${functionsBaseUrl()}/admin-login`, {
     method: "POST",
     headers: {

@@ -5,6 +5,7 @@ import { AdminAuthCard } from "./components/AdminAuthCard.jsx";
 import { PasswordField } from "./components/PasswordField.jsx";
 import { SmhLoader } from "../components/SmhLoader.jsx";
 import { clearLoginChallenge, readLoginChallenge, saveLoginChallenge } from "./loginChallenge.js";
+import { PreviewModeBanner } from "../components/PreviewModeBanner.jsx";
 
 const LOGIN_STEPS = ["Sign in", "Verify"];
 
@@ -193,6 +194,7 @@ export function AdminLogin({ initialStep = "credentials" }) {
       description={description}
       footer="Secure admin access · Salvation Ministries"
     >
+      <PreviewModeBanner surface="admin" />
       {error ? <div className="sa-login-err" role="alert">{error}</div> : null}
 
       <form onSubmit={onSubmit}>

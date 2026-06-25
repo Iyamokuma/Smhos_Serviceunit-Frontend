@@ -1,4 +1,5 @@
-import { supabaseAnonHeaders, supabaseProjectUrl } from "./supabaseEnv.js";
+import { isAppPreviewMode, supabaseAnonHeaders, supabaseProjectUrl } from "./supabaseEnv.js";
+import { PREVIEW_DIRECTORY_COUNTRIES, PREVIEW_DIRECTORY_STATES } from "./previewCatalog.js";
 
 /**
  * Public directory rows (PostgREST, anon SELECT) for registration country / state lists.
@@ -6,7 +7,7 @@ import { supabaseAnonHeaders, supabaseProjectUrl } from "./supabaseEnv.js";
 export async function fetchDirectoryCountries() {
   const base = supabaseProjectUrl();
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-  if (!base || !key) return [];
+  if (!base || !key) return isAppPreviewMode() ? PREVIEW_DIRECTORY_COUNTRIES : [];
 
   const url =
     `${base}/rest/v1/directory_countries?select=id,name,branch_country_code` +
@@ -26,7 +27,9 @@ export async function fetchDirectoryStates(countryId) {
   const base = supabaseProjectUrl();
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
   const id = Number(countryId);
-  if (!base || !key || !Number.isFinite(id) || id < 1) return [];
+  if (!base || !key || !Number.isFinite(id) || id < 1) {
+    return isAppPreviewMode() ? PREVIEW_DIRECTORY_STATES[id] || [] : [];
+  }
 
   const url =
     `${base}/rest/v1/directory_states?select=id,name,branch_state_code,country_id` +

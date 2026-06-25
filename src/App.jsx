@@ -15,6 +15,8 @@ import { SERVICE_UNITS, isEmail, isPhone, registrationSubmitFieldErrors } from "
 import { unitHasSubUnits } from "./serviceUnitUtils.js";
 import { compressPhotoDataUrl } from "./photoCompress.js";
 import { isSupabaseSubmitConfigured, submitRegistration } from "./registrationSubmit.js";
+import { isAppPreviewMode } from "./lib/supabaseEnv.js";
+import { PreviewModeBanner } from "./components/PreviewModeBanner.jsx";
 import { fetchServiceUnitsCatalog } from "./serviceUnitsCatalog.js";
 import { FormTopBrand } from "./components/FormTopBrand.jsx";
 import { branchCountryLabel, branchStateLabel } from "./admin/branchRegions.js";
@@ -267,6 +269,11 @@ export default function App() {
       };
 
       if (!isSupabaseSubmitConfigured()) {
+        if (isAppPreviewMode()) {
+          setDone(true);
+          setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+          return;
+        }
         setSaveError(
           "Submission service is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart the app."
         );
@@ -316,12 +323,21 @@ export default function App() {
             Thank you, <em>{form.firstName}</em>.
           </h2>
           <p className="hero-sub" style={{ margin: "0 auto" }}>
-            <strong>Application received successfully.</strong> We have sent a confirmation to{" "}
-            <strong>{form.email}</strong>. You will be contacted shortly by the{" "}
-            <strong>
-              {serviceUnits.find((u) => Number(u.id) === Number(form.unitId))?.name || "service unit"}
-            </strong>{" "}
-            department.
+            {isAppPreviewMode() ? (
+              <>
+                <strong>Preview submission complete.</strong> No data was sent — connect the API
+                environment variables before going live.
+              </>
+            ) : (
+              <>
+                <strong>Application received successfully.</strong> We have sent a confirmation to{" "}
+                <strong>{form.email}</strong>. You will be contacted shortly by the{" "}
+                <strong>
+                  {serviceUnits.find((u) => Number(u.id) === Number(form.unitId))?.name || "service unit"}
+                </strong>{" "}
+                department.
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -330,6 +346,7 @@ export default function App() {
 
   return (
     <div className="page">
+      <PreviewModeBanner />
       <FormTopBrand />
 
       <section className="hero">

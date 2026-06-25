@@ -1,0 +1,18 @@
+# Example nginx site block for the built frontend (dist/).
+# Replace example.org and /var/www/smhos-frontend with your domain and path.
+
+server {
+    listen 80;
+    server_name example.org;
+    root /var/www/smhos-frontend;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+}

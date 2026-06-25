@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Build output (Netlify runs `npm run build` on CI)
+# Build output
 dist/
 
 # Environment & secrets — never commit

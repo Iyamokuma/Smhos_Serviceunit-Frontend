@@ -1,4 +1,5 @@
-import { supabaseAnonHeaders, supabaseProjectUrl } from "./supabaseEnv.js";
+import { isAppPreviewMode, supabaseAnonHeaders, supabaseProjectUrl } from "./supabaseEnv.js";
+import { PREVIEW_CHURCHES } from "./previewCatalog.js";
 
 /**
  * Active church rows from public.churches (PostgREST).
@@ -7,7 +8,7 @@ import { supabaseAnonHeaders, supabaseProjectUrl } from "./supabaseEnv.js";
 export async function fetchChurchesCatalog() {
   const base = supabaseProjectUrl();
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-  if (!base || !key) return [];
+  if (!base || !key) return isAppPreviewMode() ? PREVIEW_CHURCHES : [];
 
   const url =
     `${base}/rest/v1/churches?select=id,name,address,branch_country,branch_state,directory_branch_id` +
